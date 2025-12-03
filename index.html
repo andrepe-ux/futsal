@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Novasemente Juvenis - Simulador Futsal Vertical Layout Invertido</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Estilos personalizados para o campo de futsal */
+        #futsalCanvas {
+            border: 3px solid #374151;
+            background-color: #0d9488; 
+            cursor: grab;
+            touch-action: none; 
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+        #futsalCanvas:active {
+             cursor: grabbing;
+        }
+        /* Estilo para botões de gravação ativos */
+        .recording-active {
+            animation: pulse-red 1.5s infinite;
+        }
+        @keyframes pulse-red {
+            0%, 100% { background-color: #ef4444; }
+            50% { background-color: #dc2626; }
+        }
+        /* Garantir que o canvas caiba no seu contentor (2/3 da largura) */
+        .canvas-container {
+            /* Max width ensure the 600px canvas fits within the 2/3 column on larger screens */
+            max-width: 100%; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+    </style>
+    <!-- Google Font: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 text-gray-900 min-h-screen flex flex-col items-center justify-center p-4" style="font-family: 'Inter', sans-serif;">
+
+    <div id="app" class="w-full max-w-7xl bg-white shadow-2xl rounded-xl p-6 md:p-8 border border-gray-200">
+        <h1 class="text-3xl font-bold mb-4 text-teal-600 text-center">Novasemente Juvenis</h1>
+        <p class="text-center mb-6 text-gray-500">Simulador de Jogadas de Futsal. Campo Vertical. Clique e arraste os jogadores e a bola para gravar.</p>
+
+        <!-- Informações e estado da aplicação -->
+        <div id="appStatus" class="text-sm text-center mb-4 p-2 bg-teal-100 text-teal-800 rounded-lg font-semibold">
+            Aplicação Pronta.
+        </div>
+
+        <!-- Estrutura Principal Invertida: Menu (1/3 Esquerda) | Campo (2/3 Direita) -->
+        <div class="flex flex-col lg:flex-row gap-6">
+            
+            <!-- Painel de Controlo e Jogadas Salvas - LADO ESQUERDO (1/3) -->
+            <div class="lg:w-1/3 space-y-4 order-1">
+                
+                <!-- Controlo de Gravação -->
+                <div class="p-4 bg-gray-100 rounded-lg shadow-inner border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-3 border-b border-gray-300 pb-2 text-teal-600">Gravação e Playback</h2>
+                    <div class="flex gap-2 mb-4">
+                        <button id="recordBtn" class="w-1/2 py-2 px-4 bg-red-500 hover:bg-red-600 text-white rounded-lg font-bold transition duration-150 disabled:opacity-50">
+                            <span id="recordText">Gravar</span>
+                        </button>
+                        <button id="playbackBtn" class="w-1/2 py-2 px-4 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold transition duration-150 disabled:opacity-50" disabled>
+                            Play
+                        </button>
+                    </div>
+                    
+                    <input type="text" id="playNameInput" placeholder="Nome da Jogada" class="w-full p-2 mb-3 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 focus:border-teal-500 focus:ring-teal-500" value="Nova Jogada">
+
+                    <button id="saveBtn" class="w-full py-2 px-4 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-bold transition duration-150 disabled:opacity-50" disabled>
+                        Guardar Jogada (Exporta JSON e WEBM)
+                    </button>
+                    <p id="statusMessage" class="mt-3 text-center text-sm font-semibold text-orange-600"></p>
+                </div>
+
+                <!-- Gestão de Ficheiros -->
+                <div class="p-4 bg-gray-100 rounded-lg shadow-inner border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-3 border-b border-gray-300 pb-2 text-teal-600">Gestão de Ficheiros</h2>
+                    <div class="space-y-2">
+                         <!-- Input de Importação -->
+                        <label for="importFile" class="block text-sm font-medium text-gray-700">Importar Jogadas (JSON):</label>
+                        <input type="file" id="importFile" multiple accept=".json" class="w-full text-sm text-gray-500
+                            file:mr-4 file:py-2 file:px-4
+                            file:rounded-lg file:border-0
+                            file:text-sm file:font-semibold
+                            file:bg-blue-500 file:text-white
+                            hover:file:bg-blue-600 cursor-pointer"
+                        >
+                        <button id="exportAllBtn" class="w-full py-2 px-4 bg-gray-400 hover:bg-gray-500 text-white rounded-lg font-bold transition duration-150 disabled:opacity-50">
+                            Exportar TODAS as Jogadas
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Gestão de Jogadores -->
+                <div class="p-4 bg-gray-100 rounded-lg shadow-inner border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-3 border-b border-gray-300 pb-2 text-teal-600">Números e Posições</h2>
+                    <div id="playerLabelInputs" class="space-y-2">
+                        <p class="text-gray-500 text-sm">Carregando inputs...</p>
+                    </div>
+                </div>
+
+                <!-- Jogadas Guardadas (Local) -->
+                <div class="p-4 bg-gray-100 rounded-lg shadow-inner border border-gray-200">
+                    <h2 class="text-xl font-semibold mb-3 border-b border-gray-300 pb-2 text-teal-600">Jogadas Salvas (Local)</h2>
+                    <div id="savedPlaysList" class="space-y-2 max-h-60 overflow-y-auto">
+                        <p class="text-gray-500 text-sm">Nenhuma jogada carregada.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Campo de Futsal (Canvas) - LADO DIREITO (2/3), MAIOR -->
+            <div class="lg:w-2/3 canvas-container bg-gray-200 rounded-xl p-4 shadow-inner order-2">
+                <!-- Dimensões verticais: 600 (largura) x 800 (altura) -->
+                <canvas id="futsalCanvas" width="600" height="800" class="rounded-lg max-w-full h-auto"></canvas>
+            </div>
+
+        </div>
+    </div>
+    
+    <!-- FOOTER -->
+    <footer class="mt-8 text-center text-gray-500 text-sm w-full max-w-7xl">
+        andrepe@2025
+    </footer>
+    <!-- FIM DO FOOTER -->
+
+
+    <!-- Modals e Mensagens (Custom Confirm) -->
+    <div id="customModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-xl p-6 shadow-2xl w-full max-w-sm border border-teal-600 text-gray-900">
+            <h3 id="modalTitle" class="text-xl font-bold mb-4 text-teal-600"></h3>
+            <p id="modalMessage" class="text-gray-700 mb-6"></p>
+            <div class="flex justify-end gap-3">
+                <button id="modalCancel" class="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400 transition hidden">Cancelar</button>
+                <button id="modalConfirm" class="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-semibold transition">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lógica da Aplicação (MÓDULO) -->
+    <script type="module">
+        // --- Constantes ---
+        const LOCAL_STORAGE_KEY = 'futsal_plays';
+        const PLAYER_COUNT = 5;
+        const BALL_ID = 6;
+        const PLAYER_RADIUS = 12;
+        const BALL_RADIUS = 12; 
+        const FRAME_RATE = 100; // Milissegundos por frame (10 FPS)
+        
+        // Referências ao DOM
+        const canvas = document.getElementById('futsalCanvas');
+        const ctx = canvas.getContext('2d');
+        const recordBtn = document.getElementById('recordBtn');
+        const playbackBtn = document.getElementById('playbackBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const exportAllBtn = document.getElementById('exportAllBtn'); 
+        const importFile = document.getElementById('importFile'); 
+        const playNameInput = document.getElementById('playNameInput');
+
+        // Configurações do Canvas
+        const CANVAS_WIDTH = canvas.width;
+        const CANVAS_HEIGHT = canvas.height;
+
+
+        let state = {
+            plays: [], 
+            players: [],
+            ball: {}, 
+            playerLabels: {},
+            recording: [],
+            isRecording: false,
+            isPlaying: false,
+            playHead: 0,
+            interval: null,
+            draggedItem: null, // O item a ser arrastado (jogador ou bola)
+            // Variáveis para gravação de vídeo
+            mediaRecorder: null,
+            videoChunks: [],
+            videoDataURL: null
+        };
+
+        // --- Funções Auxiliares de UI (Modal Personalizado e Status) ---
+        function showCustomModal(title, message, isConfirm = false) {
+            return new Promise(resolve => {
+                const modal = document.getElementById('customModal');
+                document.getElementById('modalTitle').textContent = title;
+                document.getElementById('modalMessage').textContent = message;
+                const confirmBtn = document.getElementById('modalConfirm');
+                const cancelBtn = document.getElementById('modalCancel');
+
+                confirmBtn.onclick = () => {
+                    modal.classList.add('hidden');
+                    resolve(true);
+                };
+
+                if (isConfirm) {
+                    cancelBtn.classList.remove('hidden');
+                    cancelBtn.onclick = () => {
+                        modal.classList.add('hidden');
+                        resolve(false);
+                    };
+                } else {
+                    cancelBtn.classList.add('hidden');
+                }
+
+                modal.classList.remove('hidden');
+                modal.focus(); // Foco para acessibilidade
+            });
+        }
+        
+        function setStatus(message, isError = false) {
+            const el = document.getElementById('statusMessage');
+            el.textContent = message;
+            el.className = `mt-3 text-center text-sm font-semibold transition-all ${isError ? 'text-red-500' : 'text-orange-600'}`;
+            clearTimeout(el.timer);
+            el.timer = setTimeout(() => { el.textContent = ''; }, 10000); // 10 segundos para mensagens de exportação
+        }
+
+        // --- Funções de Desenho e Renderização (inalterada) ---
+        function drawCourt() {
+            // Fundo do campo
+            ctx.fillStyle = '#0d9488'; 
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            
+            // Linhas laterais (bordas)
+            ctx.strokeRect(1, 1, CANVAS_WIDTH - 2, CANVAS_HEIGHT - 2);
+            
+            // Linha do meio
+            ctx.beginPath();
+            ctx.moveTo(0, CANVAS_HEIGHT / 2);
+            ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT / 2);
+            ctx.stroke();
+            
+            // Círculo Central
+            ctx.beginPath();
+            ctx.arc(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 50, 0, Math.PI * 2, false);
+            ctx.stroke();
+            
+            // Áreas de Baliza (Vertical - Arco no topo e em baixo)
+            const areaRadius = 80;
+            
+            // Área de Baliza Superior (Golpe de Baliza)
+            ctx.beginPath();
+            ctx.arc(CANVAS_WIDTH / 2, 0, areaRadius, 0, Math.PI, false); // Começa à direita (0) e vai para a esquerda (PI)
+            ctx.stroke();
+            
+            // Área de Baliza Inferior (Golpe de Baliza)
+            ctx.beginPath();
+            ctx.arc(CANVAS_WIDTH / 2, CANVAS_HEIGHT, areaRadius, Math.PI, 0, false); // Começa à esquerda (PI) e vai para a direita (0)
+            ctx.stroke();
+            
+            // Marcas de Grande Penalidade (10 metros - aproximadamente 1/4 da altura)
+            ctx.fillStyle = 'white';
+            ctx.beginPath(); 
+            ctx.arc(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 4, 3, 0, Math.PI * 2, false);
+            ctx.fill();
+            
+            // Marcas de Segunda Grande Penalidade (10 metros - aproximadamente 3/4 da altura)
+            ctx.beginPath(); 
+            ctx.arc(CANVAS_WIDTH / 2, 3 * CANVAS_HEIGHT / 4, 3, 0, Math.PI * 2, false);
+            ctx.fill();
+        }
+
+        function drawPlayers() {
+            // Desenha a Bola
+            ctx.fillStyle = 'white'; 
+            ctx.beginPath();
+            ctx.arc(state.ball.x, state.ball.y, BALL_RADIUS, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#374151';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Desenha os Jogadores
+            const playersToDraw = state.players.filter(p => p.id !== BALL_ID);
+            playersToDraw.forEach(p => {
+                // Time 1 (Ímpares) no fundo, Time 2 (Pares) no topo - Mantido
+                const color = p.id % 2 === 1 ? '#f87171' : '#3b82f6'; // Vermelho (Time 1) ou Azul (Time 2)
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, PLAYER_RADIUS, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#374151';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+
+                ctx.fillStyle = 'white';
+                ctx.font = '10px Inter';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const label = state.playerLabels[p.id] || p.id;
+                ctx.fillText(label, p.x, p.y);
+            });
+        }
+
+        function updateCanvas() {
+            drawCourt();
+            drawPlayers();
+        }
+
+        function initializeState() {
+            // Posições iniciais adaptadas para campo VERTICAL (x, y) - Inalterado
+            const standardPlayers = [
+                { id: 1, x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT - 50, label: 'G.R.' }, 
+                { id: 2, x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT - 180, label: 'Fixo' }, 
+                { id: 3, x: CANVAS_WIDTH / 4, y: CANVAS_HEIGHT - 350, label: 'Ala D' },
+                { id: 4, x: 3 * CANVAS_WIDTH / 4, y: CANVAS_HEIGHT - 350, label: 'Ala E' },
+                { id: 5, x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT - 550, label: 'Pivô' }
+            ];
+            
+            state.ball = { id: BALL_ID, x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, label: 'Bola' };
+            
+            // Garante que o array players inclui todos os jogadores e a bola
+            state.players = [...standardPlayers, state.ball]; 
+            standardPlayers.forEach(p => state.playerLabels[p.id] = p.label);
+            renderPlayerLabelInputs();
+            updateCanvas();
+        }
+
+        function renderPlayerLabelInputs() {
+            const container = document.getElementById('playerLabelInputs');
+            container.innerHTML = '';
+            
+            for (let i = 1; i <= PLAYER_COUNT; i++) {
+                const div = document.createElement('div');
+                div.className = "flex items-center gap-2";
+                
+                // Adaptação da cor: Vermelho (Time da Jogada) e Azul (Oposição, se houvesse mais de 5)
+                const colorDiv = document.createElement('div');
+                colorDiv.className = `w-4 h-4 rounded-full ${i % 2 === 1 ? 'bg-red-500' : 'bg-blue-500'}`;
+                
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.id = `label-${i}`;
+                input.placeholder = `Nº ${i} ou Posição`;
+                input.value = state.playerLabels[i] || i.toString(); 
+                input.className = "flex-grow p-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-800 focus:border-teal-500 focus:ring-teal-500";
+                
+                input.onchange = (e) => {
+                    state.playerLabels[i] = e.target.value.trim() || i.toString();
+                    updateCanvas();
+                };
+                
+                div.appendChild(colorDiv);
+                div.appendChild(input);
+                container.appendChild(div);
+            }
+        }
+
+        // --- Lógica de Drag and Drop (Arrastar e Largar) - Inalterada ---
+        
+        function getClickedItem(x, y) {
+            // Verifica a bola primeiro
+            if (Math.hypot(x - state.ball.x, y - state.ball.y) < BALL_RADIUS) {
+                return state.ball;
+            }
+
+            // Verifica os jogadores
+            for (let i = 0; i < PLAYER_COUNT; i++) {
+                const player = state.players[i];
+                if (player && player.id !== BALL_ID) {
+                    if (Math.hypot(x - player.x, y - player.y) < PLAYER_RADIUS) {
+                        return player;
+                    }
+                }
+            }
+            return null;
+        }
+
+        function getCanvasCoordinates(event) {
+            const rect = canvas.getBoundingClientRect();
+            let clientX, clientY;
+
+            if (event.touches) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+
+            const scaleX = CANVAS_WIDTH / rect.width;
+            const scaleY = CANVAS_HEIGHT / rect.height;
+
+            return {
+                x: (clientX - rect.left) * scaleX,
+                y: (clientY - rect.top) * scaleY
+            };
+        }
+
+        function handleStart(event) {
+            if (state.isPlaying) return;
+            
+            const coords = getCanvasCoordinates(event);
+            const clickedItem = getClickedItem(coords.x, coords.y);
+            
+            if (clickedItem) {
+                state.draggedItem = clickedItem;
+                canvas.style.cursor = 'grabbing';
+            }
+        }
+
+        function handleMove(event) {
+            if (!state.draggedItem || state.isPlaying) return;
+            
+            event.preventDefault(); 
+
+            const coords = getCanvasCoordinates(event);
+            
+            const radius = state.draggedItem.id === BALL_ID ? BALL_RADIUS : PLAYER_RADIUS;
+            
+            state.draggedItem.x = Math.max(radius, Math.min(CANVAS_WIDTH - radius, coords.x));
+            state.draggedItem.y = Math.max(radius, Math.min(CANVAS_HEIGHT - radius, coords.y));
+            
+            updateCanvas();
+        }
+
+        function handleEnd() {
+            if (state.draggedItem) {
+                state.draggedItem = null;
+                canvas.style.cursor = 'grab';
+            }
+        }
+        
+        // --- Lógica de Gravação e Reprodução (Inalterada) ---
+
+        function startVideoRecording() {
+            if (state.mediaRecorder) return; 
+
+            try {
+                const stream = canvas.captureStream(1000 / (FRAME_RATE / 10)); 
+                state.videoChunks = [];
+                
+                let mimeType = 'video/webm';
+                if (MediaRecorder.isTypeSupported('video/webm; codecs=vp9')) {
+                    mimeType = 'video/webm; codecs=vp9';
+                } else if (MediaRecorder.isTypeSupported('video/webm; codecs=vp8')) {
+                    mimeType = 'video/webm; codecs=vp8';
+                }
+
+                state.mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+                
+                state.mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        state.videoChunks.push(event.data);
+                    }
+                };
+
+                state.mediaRecorder.start();
+                
+            } catch (e) {
+                console.error("Erro ao iniciar gravação de vídeo (MediaRecorder):", e);
+                setStatus("AVISO: Gravação de vídeo não suportada ou erro ao iniciar.", true);
+                state.mediaRecorder = null; 
+            }
+        }
+        
+        function stopVideoRecording() {
+            return new Promise(resolve => {
+                if (!state.mediaRecorder || state.mediaRecorder.state === 'inactive') {
+                    resolve(null);
+                    return;
+                }
+                
+                state.mediaRecorder.onstop = () => {
+                    if (state.videoChunks.length > 0) {
+                        const blob = new Blob(state.videoChunks, { type: state.mediaRecorder.mimeType });
+                        resolve(blob);
+                    } else {
+                        resolve(null);
+                    }
+                    state.mediaRecorder = null;
+                };
+
+                state.mediaRecorder.stop();
+            });
+        }
+        
+        function updateRecordButton(isRecording) {
+            if (isRecording) {
+                recordBtn.textContent = 'A Gravar...';
+                recordBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
+                recordBtn.classList.add('recording-active');
+            } else {
+                recordBtn.textContent = 'Gravar';
+                recordBtn.classList.add('bg-red-500', 'hover:bg-red-600');
+                recordBtn.classList.remove('recording-active');
+            }
+        }
+
+        function startRecording() {
+            if (state.isPlaying) return;
+            
+            state.isRecording = true;
+            state.recording = []; 
+            state.playHead = 0;
+            state.videoChunks = [];
+            state.videoDataURL = null; 
+
+            updateRecordButton(true);
+            playbackBtn.disabled = true;
+            saveBtn.disabled = true;
+            exportAllBtn.disabled = true; 
+            
+            startVideoRecording();
+
+            state.interval = setInterval(() => {
+                if (!state.isRecording) return;
+                
+                const positions = state.players.map(p => ({
+                    id: p.id,
+                    x: p.x,
+                    y: p.y
+                }));
+
+                state.recording.push({ positions: positions });
+            }, FRAME_RATE);
+            
+            setStatus('Gravação de movimentos e vídeo iniciada.');
+        }
+
+        async function stopRecording() {
+            if (!state.isRecording) return;
+            
+            clearInterval(state.interval);
+            state.isRecording = false;
+            
+            updateRecordButton(false);
+            
+            const videoBlob = await stopVideoRecording();
+            if (videoBlob) {
+                state.videoDataURL = URL.createObjectURL(videoBlob);
+            }
+            
+            const hasFrames = state.recording.length > 0;
+            playbackBtn.disabled = !hasFrames;
+            saveBtn.disabled = !hasFrames;
+            exportAllBtn.disabled = false;
+
+            setStatus(`Gravação terminada. ${state.recording.length} frames capturados. Pronto para Guardar.`);
+        }
+
+        function startPlayback() {
+            if (state.isRecording || state.recording.length === 0 || state.isPlaying) return;
+
+            state.isPlaying = true;
+            state.playHead = 0;
+            recordBtn.disabled = true;
+            saveBtn.disabled = true;
+            exportAllBtn.disabled = true; 
+            playbackBtn.textContent = 'Parar';
+            playbackBtn.classList.add('bg-orange-500', 'hover:bg-orange-600');
+            playbackBtn.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+            
+            setStatus('A reproduzir jogada...');
+
+            state.interval = setInterval(() => {
+                if (state.playHead >= state.recording.length) {
+                    stopPlayback();
+                    return;
+                }
+                
+                const frame = state.recording[state.playHead];
+                
+                frame.positions.forEach(pos => {
+                    let item = state.players.find(p => p.id === pos.id);
+                    if (item) {
+                        item.x = pos.x;
+                        item.y = pos.y;
+                        if (item.id === BALL_ID) {
+                            state.ball.x = pos.x;
+                            state.ball.y = pos.y;
+                        }
+                    }
+                });
+                
+                updateCanvas();
+                state.playHead++;
+            }, FRAME_RATE);
+        }
+
+        function stopPlayback() {
+            clearInterval(state.interval);
+            state.isPlaying = false;
+            recordBtn.disabled = false;
+            saveBtn.disabled = state.recording.length === 0;
+            exportAllBtn.disabled = false; 
+            playbackBtn.textContent = 'Play';
+            playbackBtn.classList.remove('bg-orange-500', 'hover:bg-orange-600');
+            playbackBtn.classList.add('bg-blue-500', 'hover:bg-blue-600');
+            
+            setStatus('Reprodução terminada.');
+        }
+
+
+        // --- Persistência (Local Storage e Exportação) - Inalterada ---
+
+        function savePlaysToLocal() {
+            try {
+                const data = JSON.stringify(state.plays);
+                localStorage.setItem(LOCAL_STORAGE_KEY, data);
+            } catch (e) {
+                console.error("Erro ao guardar no Local Storage:", e);
+                setStatus("ERRO: Não foi possível guardar os dados localmente.", true);
+            }
+        }
+
+        function loadPlaysFromLocal() {
+            try {
+                const data = localStorage.getItem(LOCAL_STORAGE_KEY);
+                if (data) {
+                    state.plays = JSON.parse(data);
+                } else {
+                    state.plays = [];
+                }
+            } catch (e) {
+                console.error("Erro ao carregar do Local Storage:", e);
+                setStatus("AVISO: Dados de treino corrompidos. A iniciar um novo estado.", true);
+                state.plays = [];
+            }
+        }
+
+        function downloadFile(data, filename, type) {
+            let blob;
+            if (type === 'application/json') {
+                const json = JSON.stringify(data, null, 2);
+                blob = new Blob([json], { type: type });
+            } else {
+                blob = data; 
+            }
+            
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        function exportSinglePlayJson(playData) {
+            const safeName = playData.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            const filename = `NJ_JOGADA_JSON_${safeName}_${playData.id}.json`;
+            downloadFile(playData, filename, 'application/json');
+        }
+
+        function exportSinglePlayVideo(playData) {
+            if (!state.videoDataURL) return;
+
+            fetch(state.videoDataURL)
+                .then(res => res.blob())
+                .then(blob => {
+                    const safeName = playData.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+                    const filename = `NJ_JOGADA_VIDEO_${safeName}_${playData.id}.webm`;
+                    downloadFile(blob, filename, blob.type);
+                })
+                .catch(e => {
+                    console.error("Erro ao exportar vídeo:", e);
+                    setStatus("ERRO: Falha ao exportar o ficheiro de vídeo WEBM.", true);
+                });
+        }
+
+        async function savePlay() {
+            if (state.recording.length === 0) {
+                setStatus('Não há movimentos gravados para guardar.', true);
+                return;
+            }
+            
+            const playName = playNameInput.value.trim() || `Jogada ${new Date().toLocaleTimeString('pt-PT')}`;
+            if (!playName) return;
+
+            const newPlay = {
+                id: Date.now(), 
+                name: playName,
+                timestamp: new Date().toLocaleDateString('pt-PT'),
+                playerLabels: JSON.parse(JSON.stringify(state.playerLabels)), 
+                recording: state.recording
+            };
+
+            state.plays.push(newPlay);
+            savePlaysToLocal();
+            
+            exportSinglePlayJson(newPlay);
+            let message = `Jogada "${playName}" guardada e descarregada como JSON.`;
+            if (state.videoDataURL) {
+                exportSinglePlayVideo(newPlay);
+                message = `Jogada "${playName}" guardada. Foram descarregados 2 ficheiros: JSON e WEBM.`;
+            } else {
+                 message += ` (Gravação de vídeo falhou ou não foi suportada).`;
+            }
+            setStatus(message);
+            
+            loadSavedPlaysUI(); 
+            state.videoDataURL = null; 
+        }
+        
+        function exportAllPlays() {
+            if (state.plays.length === 0) {
+                setStatus('Não há jogadas salvas para exportar.', true);
+                return;
+            }
+            const filename = `Novasemente_Juvenis_TODAS_AS_JOGADAS_${new Date().toISOString().slice(0, 10)}.json`;
+            downloadFile(state.plays, filename, 'application/json');
+            setStatus(`Exportação de ${state.plays.length} jogadas para JSON concluída.`);
+        }
+        
+        function importPlays(event) {
+            const files = event.target.files;
+            if (files.length === 0) return;
+
+            Array.from(files).forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        let importedData = JSON.parse(e.target.result);
+                        
+                        if (!Array.isArray(importedData)) {
+                            importedData = [importedData];
+                        }
+
+                        let importedCount = 0;
+                        importedData.forEach(play => {
+                            if (play.name && play.recording && Array.isArray(play.recording)) {
+                                const newPlay = { ...play, id: Date.now() + Math.random() * 10000 };
+                                state.plays.push(newPlay);
+                                importedCount++;
+                            }
+                        });
+
+                        if (importedCount > 0) {
+                            savePlaysToLocal();
+                            loadSavedPlaysUI();
+                            setStatus(`${importedCount} jogadas importadas com sucesso do ficheiro: ${file.name}`);
+                        } else {
+                            setStatus(`AVISO: O ficheiro ${file.name} não continha jogadas válidas.`, true);
+                        }
+                    } catch (error) {
+                        console.error("Erro ao analisar JSON:", error);
+                        setStatus(`ERRO: Falha ao ler o ficheiro ${file.name}. Verifique se é um JSON válido.`, true);
+                    }
+                };
+                reader.readAsText(file);
+            });
+            event.target.value = '';
+        }
+
+        function loadSavedPlaysUI() {
+            loadPlaysFromLocal();
+            
+            const listEl = document.getElementById('savedPlaysList');
+            listEl.innerHTML = '';
+            
+            if (state.plays.length === 0) {
+                listEl.innerHTML = '<p class="text-gray-500 text-sm">Nenhuma jogada salva. Grave a sua primeira!</p>';
+                exportAllBtn.disabled = true; 
+                return;
+            }
+            exportAllBtn.disabled = false;
+
+            state.plays.forEach(play => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = "flex items-center justify-between p-2 bg-white rounded-lg shadow-sm hover:bg-gray-200 transition duration-150 cursor-pointer border border-gray-200";
+                
+                const infoSpan = document.createElement('span');
+                infoSpan.className = "text-sm truncate text-gray-800";
+                infoSpan.textContent = `${play.name} (Salvo: ${play.timestamp})`;
+
+                const loadBtn = document.createElement('button');
+                loadBtn.textContent = 'Carregar';
+                loadBtn.className = "ml-2 px-3 py-1 bg-teal-500 text-white text-xs font-semibold rounded hover:bg-teal-600 transition";
+                
+                itemDiv.appendChild(infoSpan);
+                itemDiv.appendChild(loadBtn);
+                listEl.appendChild(itemDiv);
+
+                loadBtn.onclick = (e) => {
+                    e.stopPropagation(); 
+                    loadPlayData(play);
+                };
+            });
+        }
+        
+        function loadPlayData(playData) {
+            showCustomModal("Carregar Jogada", `Tem a certeza que quer carregar a jogada "${playData.name}"? Isso apagará qualquer movimento atual.`, true)
+            .then(confirmed => {
+                if (confirmed) {
+                    if (state.isRecording) stopRecording();
+                    if (state.isPlaying) stopPlayback();
+
+                    state.playerLabels = playData.playerLabels || {};
+                    renderPlayerLabelInputs(); 
+
+                    state.recording = playData.recording || [];
+                    const hasFrames = state.recording.length > 0;
+                    playbackBtn.disabled = !hasFrames;
+                    saveBtn.disabled = true; 
+
+                    if (hasFrames) {
+                        const firstFrame = state.recording[0];
+                        
+                        firstFrame.positions.forEach(pos => {
+                            let item = state.players.find(p => p.id === pos.id);
+                            if (item) {
+                                item.x = pos.x;
+                                item.y = pos.y;
+                            }
+                        });
+                        
+                        updateCanvas();
+                        setStatus(`Jogada "${playData.name}" carregada. Pronto para Play.`);
+                    } else {
+                        initializeState();
+                        setStatus(`Jogada "${playData.name}" carregada, mas sem movimentos gravados. A redefinir as posições.`, true);
+                    }
+                }
+            });
+        }
+
+        // --- Configuração dos Botões e Inputs ---
+        recordBtn.addEventListener('click', () => {
+            if (state.isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        });
+        
+        playbackBtn.addEventListener('click', () => {
+            if (state.isPlaying) {
+                stopPlayback();
+            } else {
+                startPlayback();
+            }
+        });
+        
+        saveBtn.addEventListener('click', savePlay);
+
+        exportAllBtn.addEventListener('click', exportAllPlays); 
+        
+        importFile.addEventListener('change', importPlays); 
+
+        // --- Eventos de Arrastar (Mouse e Touch) ---
+        canvas.addEventListener('mousedown', handleStart);
+        canvas.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd); 
+
+        canvas.addEventListener('touchstart', handleStart);
+        canvas.addEventListener('touchmove', handleMove);
+        window.addEventListener('touchend', handleEnd); 
+
+        // --- Inicialização Principal ---
+        window.onload = () => {
+            initializeState(); 
+            loadSavedPlaysUI(); 
+            document.getElementById('appStatus').textContent = 'Pronto. Campo Vertical. Clique e arraste para movimentar.';
+        };
+
+    </script>
+</body>
+</html>
