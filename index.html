@@ -201,7 +201,7 @@
         const FRAME_RATE = 100; // Milissegundos por frame (10 FPS)
         const TRAIL_LENGTH = 15; // Número de pontos para o rasto em tempo real
         
-        const LOGO_URL = 'https://placehold.co/150x150/9CA3AF/FFFFFF?text=NOVAS%2E'; 
+        const LOGO_URL = 'https://placehold.co/150x300/9CA3AF/FFFFFF?text=Novasemente GD'; 
         
         const TEAM_COLOR = '#f87171'; // Vermelho Claro 
         const OPPONENT_COLOR = '#10b981'; // Verde
@@ -752,7 +752,7 @@
             // Título para a nossa equipa
             const teamTitle = document.createElement('h3');
             teamTitle.className = "text-md font-semibold mt-1 mb-2 text-red-600";
-            teamTitle.textContent = "Nossa Equipa (Vermelho)";
+            teamTitle.textContent = "Novasemente (Vermelho)";
             container.appendChild(teamTitle);
 
             // Jogadores da Equipa (Vermelho)
@@ -782,7 +782,7 @@
             
             const opponentTitle = document.createElement('h3');
             opponentTitle.className = "text-md font-semibold mt-4 mb-2 text-green-600 pt-2 border-t border-gray-300";
-            opponentTitle.textContent = "Equipa Oponente (Verde)";
+            opponentTitle.textContent = "Equipa Adversária (Verde)";
             container.appendChild(opponentTitle);
 
             // Jogadores Oponentes (Verde)
@@ -1353,7 +1353,7 @@
             // Listener de Redimensionamento do Ecrã (para ajustar o layout dinâmico)
             window.addEventListener('resize', updateLayout);
 
-            document.getElementById('appStatus').textContent = "Aplicação totalmente funcional. Menus laterais ocultos para maximizar a área do campo.";
+            document.getElementById('appStatus').textContent = "Aplicação para Treinadores de FUTSAL.";
         }
 
         window.onload = init;
