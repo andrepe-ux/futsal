@@ -11,6 +11,8 @@
     #futsalCanvas{border:3px solid #1e293b;cursor:grab;touch-action:none;box-shadow:0 8px 16px rgba(0,0,0,.2)}
     #futsalCanvas:active{cursor:grabbing}.recording-active{animation:pulse-red 1.5s infinite}
     @keyframes pulse-red{0%,100%{background:#ef4444}50%{background:#b91c1c}}
+    .simultaneous-active{animation:pulse-purple 1.5s infinite}
+    @keyframes pulse-purple{0%,100%{background:#7c3aed}50%{background:#5b21b6}}
     .canvas-container{max-width:100%;display:flex;flex-direction:column;align-items:center}
     .cursor-grab{cursor:grab}.cursor-grabbing{cursor:grabbing}.cursor-crosshair{cursor:crosshair}
   </style>
@@ -46,9 +48,12 @@
         <h2 class="mb-3 border-b pb-2 text-xl font-semibold text-blue-700">Gravação e base de dados</h2>
         <label for="dbPlaySelect" class="mb-1 block text-xs font-bold uppercase">Carregar jogada</label>
         <select id="dbPlaySelect" class="mb-4 w-full rounded-lg border border-blue-500 bg-white p-2 text-sm"><option value="">-- Selecionar jogada --</option></select>
-        <div class="mb-3 flex gap-2">
+        <div class="mb-2 flex gap-2">
           <button id="recordBtn" type="button" class="w-1/2 rounded-lg bg-red-500 px-4 py-2 font-bold text-white hover:bg-red-600">Gravar</button>
           <button id="playbackBtn" type="button" disabled class="w-1/2 rounded-lg bg-blue-500 px-4 py-2 font-bold text-white disabled:opacity-50">Play</button>
+        </div>
+        <div class="mb-3">
+          <button id="simultaneousBtn" type="button" disabled class="w-full rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-50">👥 Movimento simultâneo: OFF</button>
         </div>
         <div class="mb-3">
           <div class="flex justify-between text-xs font-semibold text-gray-600 mb-1">
@@ -148,11 +153,35 @@ let SUBTIPOS_MAP = {
     'Esquemas Táticos': ['Cantos', 'Lançamentos', 'Livres', '5*4', '4*3', 'Bola de Saída', 'Reposição de GR']
 };
 
-const PLAYER_COUNT=5, OPPONENT_COUNT=5, BALL_ID=11, SCALE=700/600, PLAYER_RADIUS=18*SCALE, BALL_RADIUS=15*SCALE, FRAME_INTERVAL=100, TRAIL_LENGTH=15;
+const PLAYER_COUNT=5, OPPONENT_COUNT=5, BALL_ID=11, SCALE=700/600, PLAYER_RADIUS=18*SCALE, BALL_RADIUS=15*SCALE, FRAME_INTERVAL=100, TRAIL_LENGTH=15, SIMULTANEOUS_FRAMES=14;
 const TEAM_COLOR='#f87171', OPPONENT_COLOR='#10b981', PATH_COLOR='rgba(255,255,255,.72)';
 const $=id=>document.getElementById(id);
 const canvas=$('futsalCanvas'),ctx=canvas.getContext('2d'),W=canvas.width,COURT_H=933,H=canvas.height;
-const state={activePlayId:null,plays:[],players:[],ball:null,playerLabels:{},recording:[],customArrows:[],isDrawingMode:false,drawingStart:null,isRecording:false,isPlaying:false,playHead:0,interval:null,draggedItem:null,isMenuLeftOpen:false,isMenuRightOpen:false,showOpponent:false,showPathArrows:true,history:[],playerTrails:{}};
+const state={
+  activePlayId:null,
+  plays:[],
+  players:[],
+  ball:null,
+  playerLabels:{},
+  recording:[],
+  customArrows:[],
+  isDrawingMode:false,
+  drawingStart:null,
+  isRecording:false,
+  isSimultaneousMode:false,
+  simultaneousStartPos:null,
+  simultaneousTracks:{},
+  isPlaying:false,
+  playHead:0,
+  interval:null,
+  draggedItem:null,
+  isMenuLeftOpen:false,
+  isMenuRightOpen:false,
+  showOpponent:false,
+  showPathArrows:true,
+  history:[],
+  playerTrails:{}
+};
 let initialPositions=[];
 
 function setStatus(message,isError=false){const el=$('statusMessage');el.textContent=message;el.className=`mt-3 text-center text-sm font-semibold ${isError?'text-red-600':'text-blue-600'}`;clearTimeout(el.timer);el.timer=setTimeout(()=>el.textContent='',8000)}
@@ -191,6 +220,45 @@ function drawCustomArrows(){
 }
 
 function drawPaths(){if(!state.showPathArrows)return;const tracks={};const frames=state.isPlaying?state.recording.slice(0,state.playHead+1):state.recording;for(const f of frames)for(const p of f.positions){(tracks[p.id]??=[]).push({x:p.x,y:p.y})}if(!state.isPlaying)for(const[id,trail]of Object.entries(state.playerTrails)){tracks[id]=(tracks[id]||[]).concat(trail)}for(const[id,track]of Object.entries(tracks)){const n=Number(id);if(n===BALL_ID||(n>=6&&n<=10&&!state.showOpponent)||track.length<2)continue;const color=n>=6?OPPONENT_COLOR:TEAM_COLOR;for(let i=0;i<track.length-1;i++){ctx.strokeStyle=i>=track.length-TRAIL_LENGTH-1?color:PATH_COLOR;ctx.lineWidth=i>=track.length-TRAIL_LENGTH-1?3:2;ctx.setLineDash(i>=track.length-TRAIL_LENGTH-1?[]:[5,5]);ctx.beginPath();ctx.moveTo(track[i].x,track[i].y);ctx.lineTo(track[i+1].x,track[i+1].y);ctx.stroke()}const l=track.at(-1),p=track.at(-2);ctx.setLineDash([]);arrowHead(l.x,l.y,p.x,p.y,color)}ctx.setLineDash([])}
+
+function drawSimultaneousOverlay(){
+  if(!state.isSimultaneousMode || !state.simultaneousStartPos) return;
+  ctx.save();
+  for(const startP of state.simultaneousStartPos){
+    const currP = state.players.find(p => p.id === startP.id);
+    if(!currP) continue;
+    const opp = startP.id >= 6 && startP.id <= 10;
+    if(opp && !state.showOpponent) continue;
+    const moved = Math.hypot(currP.x - startP.x, currP.y - startP.y) > 2;
+    if(!moved) continue;
+
+    // Marcador fantasma na posição original antes do movimento simultâneo
+    const r = startP.id === BALL_ID ? BALL_RADIUS : PLAYER_RADIUS;
+    ctx.strokeStyle = '#c4b5fd';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.arc(startP.x, startP.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Linha guia tracejada até ao destino atual
+    const track = state.simultaneousTracks[startP.id];
+    if(track && track.length > 1){
+      ctx.beginPath();
+      ctx.moveTo(track[0].x, track[0].y);
+      for(let i=1;i<track.length;i++) ctx.lineTo(track[i].x, track[i].y);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(startP.x, startP.y);
+      ctx.lineTo(currP.x, currP.y);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+  ctx.restore();
+}
+
 function drawPlayers(){ctx.fillStyle='white';ctx.beginPath();ctx.arc(state.ball.x,state.ball.y,BALL_RADIUS,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#1e293b';ctx.stroke();for(const p of state.players){if(p.id===BALL_ID)continue;const opp=p.id>=6&&p.id<=10;if(opp&&!state.showOpponent)continue;ctx.fillStyle=opp?OPPONENT_COLOR:TEAM_COLOR;ctx.beginPath();ctx.arc(p.x,p.y,PLAYER_RADIUS,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#1e293b';ctx.lineWidth=1.5;ctx.stroke();ctx.fillStyle='white';ctx.font=`600 ${12*SCALE}px system-ui`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(state.playerLabels[p.id]||(opp?`A${p.id-5}`:p.id),p.x,p.y)}}
 
 function drawObservationsOverlay(){
@@ -231,18 +299,81 @@ function drawObservationsOverlay(){
 }
 
 function updateTimelineUI(){const slider=$('timelineSlider'),counter=$('timelineCounter'),max=Math.max(0,state.recording.length-1);slider.max=max;slider.value=state.playHead;slider.disabled=max===0||state.isRecording;counter.textContent=`${state.playHead} / ${max}`}
-function updateCanvas(){drawCourt();drawCustomArrows();drawPaths();drawPlayers();drawObservationsOverlay();updateTimelineUI();$('undoBtn').disabled=!state.history.length||state.isRecording||state.isPlaying;$('undoArrowBtn').disabled=!state.customArrows.length||state.isRecording||state.isPlaying}
+function updateCanvas(){
+  drawCourt();
+  drawCustomArrows();
+  drawPaths();
+  drawSimultaneousOverlay();
+  drawPlayers();
+  drawObservationsOverlay();
+  updateTimelineUI();
+  $('undoBtn').disabled=!state.history.length||state.isRecording||state.isPlaying;
+  $('undoArrowBtn').disabled=!state.customArrows.length||state.isRecording||state.isPlaying;
+  $('simultaneousBtn').disabled=!state.isRecording||state.isPlaying;
+}
 function getInitialPositions(){const c=W/2,q=W/4;return[{id:1,x:c,y:COURT_H-50*SCALE,label:'G.R.'},{id:2,x:c,y:COURT_H-180*SCALE,label:'Fixo'},{id:3,x:q,y:COURT_H-350*SCALE,label:'Ala E'},{id:4,x:3*q,y:COURT_H-350*SCALE,label:'Ala D'},{id:5,x:c,y:COURT_H-550*SCALE,label:'Pivô'},{id:6,x:c,y:50*SCALE,label:'GR A'},{id:7,x:c,y:180*SCALE,label:'Pivô A'},{id:8,x:q,y:350*SCALE,label:'Ala E A'},{id:9,x:3*q,y:350*SCALE,label:'Ala D A'},{id:10,x:c,y:550*SCALE,label:'Fixo A'},{id:11,x:c,y:COURT_H/2,label:'Bola'}]}
 function initialize(){initialPositions=getInitialPositions();state.players=structuredClone(initialPositions);state.ball=state.players.find(p=>p.id===BALL_ID);for(const p of initialPositions)state.playerLabels[p.id]??=p.label;renderLabelInputs();updateCanvas()}
 function renderLabelInputs(){const c=$('playerLabelInputs');c.innerHTML='';for(const group of [{title:'FutSal - AP (Vermelho)',from:1,to:5,color:'bg-red-500'},{title:'Equipa adversária (Verde)',from:6,to:10,color:'bg-green-600'}]){const h=document.createElement('h3');h.className='mt-2 font-semibold';h.textContent=group.title;c.appendChild(h);for(let i=group.from;i<=group.to;i++){const row=document.createElement('div');row.className='flex items-center gap-2';row.innerHTML=`<span class="h-4 w-4 flex-shrink-0 rounded-full ${group.color}"></span>`;const inp=document.createElement('input');inp.className='min-w-0 flex-grow rounded border p-1 text-xs';inp.value=state.playerLabels[i]||String(i);inp.addEventListener('input',()=>{state.playerLabels[i]=inp.value.trim()||String(i);updateCanvas()});row.appendChild(inp);c.appendChild(row)}}}
-function resetPlay(){if(state.isRecording||state.isPlaying)return modal('Atenção','Pare a gravação ou reprodução primeiro.');state.players=structuredClone(initialPositions);state.ball=state.players.find(p=>p.id===BALL_ID);Object.assign(state,{recording:[],customArrows:[],history:[],playerTrails:{},playHead:0});$('playbackBtn').disabled=true;$('saveBtn').disabled=true;$('exportMp4Btn').disabled=true;$('playNameInput').value='Nova Jogada';$('playObservacoesInput').value='';$('externalNotesDisplay').textContent='Sem observações inseridas para esta jogada.';clearEdit();updateCanvas();setStatus('Nova jogada iniciada.')}
+function resetPlay(){if(state.isRecording||state.isPlaying)return modal('Atenção','Pare a gravação ou reprodução primeiro.');state.players=structuredClone(initialPositions);state.ball=state.players.find(p=>p.id===BALL_ID);Object.assign(state,{recording:[],customArrows:[],history:[],playerTrails:{},playHead:0,isSimultaneousMode:false,simultaneousStartPos:null,simultaneousTracks:{}});$('playbackBtn').disabled=true;$('saveBtn').disabled=true;$('exportMp4Btn').disabled=true;$('simultaneousBtn').disabled=true;$('simultaneousBtn').textContent='👥 Movimento simultâneo: OFF';$('simultaneousBtn').classList.remove('simultaneous-active');$('playNameInput').value='Nova Jogada';$('playObservacoesInput').value='';$('externalNotesDisplay').textContent='Sem observações inseridas para esta jogada.';clearEdit();updateCanvas();setStatus('Nova jogada iniciada.')}
 function saveHistory(){state.history.push(state.players.map(p=>({id:p.id,x:p.x,y:p.y})));if(state.history.length>50)state.history.shift()}
 function undo(){const prev=state.history.pop();if(!prev)return setStatus('Não há movimentos para desfazer.',true);for(const p of prev){const item=state.players.find(x=>x.id===p.id);if(item)Object.assign(item,p)}state.playerTrails={};updateCanvas()}
 function undoArrow(){if(!state.customArrows.length)return;state.customArrows.pop();updateCanvas();setStatus('Última seta removida.')}
 function coords(e){const r=canvas.getBoundingClientRect(),point=e.touches?.[0]||e.changedTouches?.[0]||e;return{x:(point.clientX-r.left)*W/r.width,y:(point.clientY-r.top)*H/r.height}}
 function clicked(x,y){if(Math.hypot(x-state.ball.x,y-state.ball.y)<BALL_RADIUS)return state.ball;return state.players.find(p=>p.id!==BALL_ID&&!(p.id>=6&&p.id<=10&&!state.showOpponent)&&Math.hypot(x-p.x,y-p.y)<PLAYER_RADIUS)||null}
-function startDrag(e){if(state.isPlaying)return;const c=coords(e);if(state.isDrawingMode){state.drawingStart=c;return}const item=clicked(c.x,c.y);if(item){saveHistory();state.draggedItem=item;if(item.id!==BALL_ID)state.playerTrails[item.id]=[]}}
-function moveDrag(e){if(state.isPlaying)return;if(state.isDrawingMode&&state.drawingStart){e.preventDefault();const c=coords(e);updateCanvas();ctx.strokeStyle='#f59e0b';ctx.lineWidth=3;ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(state.drawingStart.x,state.drawingStart.y);ctx.lineTo(c.x,c.y);ctx.stroke();ctx.setLineDash([]);arrowHead(c.x,c.y,state.drawingStart.x,state.drawingStart.y,'#f59e0b');return}if(!state.draggedItem)return;e.preventDefault();const c=coords(e),r=state.draggedItem.id===BALL_ID?BALL_RADIUS:PLAYER_RADIUS;state.draggedItem.x=Math.max(r,Math.min(W-r,c.x));state.draggedItem.y=Math.max(r,Math.min(COURT_H-r,c.y));const id=state.draggedItem.id;if(id!==BALL_ID){const t=state.playerTrails[id]??=[];const l=t.at(-1);if(!l||Math.hypot(state.draggedItem.x-l.x,state.draggedItem.y-l.y)>5)t.push({x:state.draggedItem.x,y:state.draggedItem.y});if(t.length>TRAIL_LENGTH)t.shift()}updateCanvas()}
+
+function startDrag(e){
+  if(state.isPlaying)return;
+  const c=coords(e);
+  if(state.isDrawingMode){state.drawingStart=c;return}
+  const item=clicked(c.x,c.y);
+  if(item){
+    saveHistory();
+    state.draggedItem=item;
+    if(item.id!==BALL_ID)state.playerTrails[item.id]=[];
+    if(state.isSimultaneousMode){
+      state.simultaneousTracks[item.id] = [{x: item.x, y: item.y}];
+    }
+  }
+}
+
+function moveDrag(e){
+  if(state.isPlaying)return;
+  if(state.isDrawingMode&&state.drawingStart){
+    e.preventDefault();
+    const c=coords(e);
+    updateCanvas();
+    ctx.strokeStyle='#f59e0b';
+    ctx.lineWidth=3;
+    ctx.setLineDash([6,4]);
+    ctx.beginPath();
+    ctx.moveTo(state.drawingStart.x,state.drawingStart.y);
+    ctx.lineTo(c.x,c.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    arrowHead(c.x,c.y,state.drawingStart.x,state.drawingStart.y,'#f59e0b');
+    return;
+  }
+  if(!state.draggedItem)return;
+  e.preventDefault();
+  const c=coords(e),r=state.draggedItem.id===BALL_ID?BALL_RADIUS:PLAYER_RADIUS;
+  state.draggedItem.x=Math.max(r,Math.min(W-r,c.x));
+  state.draggedItem.y=Math.max(r,Math.min(COURT_H-r,c.y));
+  const id=state.draggedItem.id;
+  if(id!==BALL_ID){
+    const t=state.playerTrails[id]??=[];
+    const l=t.at(-1);
+    if(!l||Math.hypot(state.draggedItem.x-l.x,state.draggedItem.y-l.y)>5)t.push({x:state.draggedItem.x,y:state.draggedItem.y});
+    if(t.length>TRAIL_LENGTH)t.shift();
+  }
+  if(state.isSimultaneousMode){
+    const st = state.simultaneousTracks[id] ??= [];
+    const last = st.at(-1);
+    if(!last || Math.hypot(state.draggedItem.x - last.x, state.draggedItem.y - last.y) > 4){
+      st.push({x: state.draggedItem.x, y: state.draggedItem.y});
+    }
+  }
+  updateCanvas();
+}
 
 function endDrag(e){
   if(state.isDrawingMode&&state.drawingStart){
@@ -255,30 +386,151 @@ function endDrag(e){
     updateCanvas();
     return;
   }
+  if(state.draggedItem && state.isSimultaneousMode){
+    const id = state.draggedItem.id;
+    const st = state.simultaneousTracks[id];
+    if(st){
+      st.push({x: state.draggedItem.x, y: state.draggedItem.y});
+    }
+  }
   state.draggedItem=null;
+}
+
+function sampleTrackAt(track, t){
+  if(!track || track.length === 0) return null;
+  if(track.length === 1 || t <= 0) return track[0];
+  if(t >= 1) return track[track.length - 1];
+
+  const segLengths = [];
+  let totalLen = 0;
+  for(let i = 0; i < track.length - 1; i++){
+    const d = Math.hypot(track[i+1].x - track[i].x, track[i+1].y - track[i].y);
+    segLengths.push(d);
+    totalLen += d;
+  }
+  if(totalLen === 0) return track[track.length - 1];
+
+  const targetDist = totalLen * t;
+  let acc = 0;
+  for(let i = 0; i < segLengths.length; i++){
+    const len = segLengths[i];
+    if(acc + len >= targetDist){
+      const localT = len === 0 ? 0 : (targetDist - acc) / len;
+      return {
+        x: track[i].x + (track[i+1].x - track[i].x) * localT,
+        y: track[i].y + (track[i+1].y - track[i].y) * localT
+      };
+    }
+    acc += len;
+  }
+  return track[track.length - 1];
+}
+
+function startRecordingTimer(){
+  clearInterval(state.interval);
+  state.interval=setInterval(()=>{
+    if(!state.isRecording || state.isSimultaneousMode) return;
+    state.recording.push({positions:state.players.map(p=>({id:p.id,x:p.x,y:p.y}))});
+    state.playHead = state.recording.length - 1;
+    updateTimelineUI();
+  },FRAME_INTERVAL);
+}
+
+function toggleSimultaneousMode(){
+  if(!state.isRecording || state.isPlaying) return;
+  const btn = $('simultaneousBtn');
+
+  if(!state.isSimultaneousMode){
+    // Ativar pausa para preparar o movimento simultâneo de vários jogadores
+    state.isSimultaneousMode = true;
+    state.simultaneousStartPos = state.players.map(p => ({id: p.id, x: p.x, y: p.y}));
+    state.simultaneousTracks = {};
+    btn.textContent = '✅ Aplicar simultâneo (ON)';
+    btn.classList.add('simultaneous-active');
+    updateCanvas();
+    setStatus('Gravação pausada: mova 2 ou mais jogadores e clique novamente para aplicar em simultâneo.');
+  } else {
+    // Gerar frames simultâneos entre a posição de partida e as posições/trajetos atuais
+    const endPos = state.players.map(p => ({id: p.id, x: p.x, y: p.y}));
+    const anyMoved = endPos.some(ep => {
+      const sp = state.simultaneousStartPos.find(x => x.id === ep.id);
+      return sp && Math.hypot(ep.x - sp.x, ep.y - sp.y) > 2;
+    });
+
+    if(anyMoved){
+      for(let s = 1; s <= SIMULTANEOUS_FRAMES; s++){
+        const t = s / SIMULTANEOUS_FRAMES;
+        const framePositions = state.simultaneousStartPos.map(sp => {
+          const ep = endPos.find(x => x.id === sp.id) || sp;
+          const track = state.simultaneousTracks[sp.id];
+          if(track && track.length > 1){
+            const pt = sampleTrackAt(track, t);
+            return {id: sp.id, x: pt.x, y: pt.y};
+          }
+          return {
+            id: sp.id,
+            x: sp.x + (ep.x - sp.x) * t,
+            y: sp.y + (ep.y - sp.y) * t
+          };
+        });
+        state.recording.push({positions: framePositions});
+      }
+      state.playHead = state.recording.length - 1;
+      setStatus('Movimento simultâneo aplicado! Gravação contínua retomada.');
+    } else {
+      setStatus('Nenhum jogador movido. Gravação contínua retomada.');
+    }
+
+    state.isSimultaneousMode = false;
+    state.simultaneousStartPos = null;
+    state.simultaneousTracks = {};
+    btn.textContent = '👥 Movimento simultâneo: OFF';
+    btn.classList.remove('simultaneous-active');
+    updateCanvas();
+  }
 }
 
 function startRecording(){
   if(state.isPlaying)return;
   state.isRecording=true;
+  state.isSimultaneousMode=false;
+  state.simultaneousStartPos=null;
+  state.simultaneousTracks={};
   state.recording=[];
   state.playHead=0;
   state.playerTrails={};
   $('recordBtn').textContent='A gravar...';
   $('recordBtn').classList.add('recording-active');
+  $('simultaneousBtn').disabled=false;
+  $('simultaneousBtn').textContent='👥 Movimento simultâneo: OFF';
+  $('simultaneousBtn').classList.remove('simultaneous-active');
   for(const id of ['playbackBtn','saveBtn','exportMp4Btn','undoBtn','timelineSlider'])$(id).disabled=true;
   
-  state.interval=setInterval(()=>{
-    state.recording.push({positions:state.players.map(p=>({id:p.id,x:p.x,y:p.y}))});
-    state.playHead = state.recording.length - 1; // Atualiza o playHead em tempo real durante a gravação
-  },FRAME_INTERVAL);
-  
+  startRecordingTimer();
   setStatus('A gravar movimento...');
 }
 
-function stopRecording(){clearInterval(state.interval);state.isRecording=false;$('recordBtn').textContent='Gravar';$('recordBtn').classList.remove('recording-active');const has=state.recording.length>0;$('playbackBtn').disabled=!has;$('saveBtn').disabled=!has;$('exportMp4Btn').disabled=!has;updateCanvas();setStatus(`Gravação terminada: ${state.recording.length} frames.`)}
+function stopRecording(){
+  if(state.isSimultaneousMode){
+    toggleSimultaneousMode();
+  }
+  clearInterval(state.interval);
+  state.isRecording=false;
+  state.isSimultaneousMode=false;
+  $('recordBtn').textContent='Gravar';
+  $('recordBtn').classList.remove('recording-active');
+  $('simultaneousBtn').disabled=true;
+  $('simultaneousBtn').textContent='👥 Movimento simultâneo: OFF';
+  $('simultaneousBtn').classList.remove('simultaneous-active');
+  const has=state.recording.length>0;
+  $('playbackBtn').disabled=!has;
+  $('saveBtn').disabled=!has;
+  $('exportMp4Btn').disabled=!has;
+  updateCanvas();
+  setStatus(`Gravação terminada: ${state.recording.length} frames.`);
+}
 function applyFrame(index){const frame=state.recording[index];if(!frame)return;for(const p of frame.positions){const item=state.players.find(x=>x.id===p.id);if(item){item.x=p.x;item.y=p.y}}state.playHead=index;updateTimelineUI()}
-function startPlayback(){if(state.isRecording||!state.recording.length||state.isPlaying)return;state.isPlaying=true;if(state.playHead>=state.recording.length-1)state.playHead=0;$('playbackBtn').textContent='Parar';$('recordBtn').disabled=$('saveBtn').disabled=$('exportMp4Btn').disabled=true;state.interval=setInterval(()=>{if(state.playHead>=state.recording.length-1)return stopPlayback();applyFrame(++state.playHead);updateCanvas()},FRAME_INTERVAL)}
+function startPlayback(){if(state.isRecording||!state.recording.length||state.isPlaying)return;state.isPlaying=true;if(state.playHead>=state.recording.length-1)state.playHead=0;$('playbackBtn').textContent='Parar';$('recordBtn').disabled=$('saveBtn').disabled=$('exportMp4Btn').disabled=$('simultaneousBtn').disabled=true;state.interval=setInterval(()=>{if(state.playHead>=state.recording.length-1)return stopPlayback();applyFrame(++state.playHead);updateCanvas()},FRAME_INTERVAL)}
 
 function stopPlayback(){
   clearInterval(state.interval);
@@ -305,7 +557,7 @@ async function exportVideo(){
  const format=formats.find(([mime])=>MediaRecorder.isTypeSupported(mime));if(!format)return modal('Formato indisponível','Este navegador não suporta MP4 nem WebM através do MediaRecorder.');
  const [mime,ext]=format,original=state.players.map(p=>({id:p.id,x:p.x,y:p.y}));let stream,recorder,timer;
  try{
-  for(const id of ['exportMp4Btn','recordBtn','playbackBtn','saveBtn'])$(id).disabled=true;setStatus(`A exportar ${ext.toUpperCase()}...`);
+  for(const id of ['exportMp4Btn','recordBtn','playbackBtn','saveBtn','simultaneousBtn'])$(id).disabled=true;setStatus(`A exportar ${ext.toUpperCase()}...`);
   stream=canvas.captureStream(Math.max(1,Math.round(1000/FRAME_INTERVAL)));recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:5000000});const chunks=[];
   recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data)};const stopped=new Promise((resolve,reject)=>{recorder.onstop=resolve;recorder.onerror=e=>reject(e.error||new Error('Erro de gravação'))});
   applyFrame(0);state.isPlaying=true;updateCanvas();recorder.start(250);
@@ -544,6 +796,7 @@ function init(){
   $('resetBtn').onclick=resetPlay;
   $('undoBtn').onclick=undo;
   $('undoArrowBtn').onclick=undoArrow;
+  $('simultaneousBtn').onclick=toggleSimultaneousMode;
   $('toggleOpponentBtn').onclick=()=>{state.showOpponent=!state.showOpponent;$('toggleOpponentBtn').textContent=state.showOpponent?'Ocultar equipa oponente':'Mostrar equipa oponente';updateCanvas()};
   $('togglePathArrowsBtn').onclick=()=>{state.showPathArrows=!state.showPathArrows;$('togglePathArrowsBtn').textContent=state.showPathArrows?'✖ Ocultar trajetos':'▶ Mostrar trajetos';updateCanvas()};
   $('toggleDrawModeBtn').onclick=()=>{state.isDrawingMode=!state.isDrawingMode;$('toggleDrawModeBtn').textContent=`✏ Modo seta: ${state.isDrawingMode?'ON':'OFF'}`;canvas.className=canvas.className.replace(/cursor-\w+/g,'')+' '+(state.isDrawingMode?'cursor-crosshair':'cursor-grab')};
